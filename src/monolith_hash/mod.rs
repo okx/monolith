@@ -10,6 +10,8 @@ use std::fmt::Debug;
 
 use unroll::unroll_for_loops;
 
+mod arch;
+
 /// Monolith implementation for Goldilocks prime field
 pub mod monolith_goldilocks;
 
@@ -302,6 +304,7 @@ pub trait Monolith: PrimeField64 {
     }
 
     /// Full Monolith permutation
+    #[cfg(not(target_feature = "avx2"))]
     #[inline]
     fn monolith(input: [Self; SPONGE_WIDTH]) -> [Self; SPONGE_WIDTH] {
         let mut state_u128 = [0; SPONGE_WIDTH];
@@ -319,6 +322,26 @@ pub trait Monolith: PrimeField64 {
         // Convert back
         let mut state_f = [Self::ZERO; SPONGE_WIDTH];
         for (out, inp) in state_f.iter_mut().zip(state_u128.iter()) {
+            *out = Self::from_canonical_u64(*inp as u64);
+        }
+        state_f
+    }
+
+    /// Full Monolith permutation with AVX2
+    #[cfg(target_feature = "avx2")]
+    #[inline]
+    fn monolith(input: [Self; SPONGE_WIDTH]) -> [Self; SPONGE_WIDTH] {
+        use crate::monolith_hash::arch::x86_64::monolith_avx2::monolith_avx;
+
+        let mut state_u64 = [0u64; SPONGE_WIDTH];
+        for (out, inp) in state_u64.iter_mut().zip(input.iter()) {
+            *out = inp.to_noncanonical_u64();
+        }
+
+        monolith_avx(&mut state_u64);
+
+        let mut state_f = [Self::ZERO; SPONGE_WIDTH];
+        for (out, inp) in state_f.iter_mut().zip(state_u64.iter()) {
             *out = Self::from_canonical_u64(*inp as u64);
         }
         state_f
